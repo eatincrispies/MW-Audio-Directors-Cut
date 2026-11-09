@@ -22,7 +22,6 @@ A huge audio overhaul mod that restores the cut pursuit music, cut soundtracks, 
 - Ram a cop hard enough and they'll scream, way more often than in the base game, and mostly with the demo screams.
 - Get busted and a cop calls in your arrest before the busted cutscene, then dispatch answers.
 - Cops call EMS when you take out a bunch of units or the helicopter, without spamming it.
-- The cop radio doesn't get stuck anymore.
 
 ## Install
 

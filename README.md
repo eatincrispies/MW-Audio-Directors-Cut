@@ -1,3 +1,5 @@
+![Audio Director's Cut](Thumbnail.png)
+
 # Audio Director's Cut
 
 A huge audio overhaul mod that restores the cut pursuit music, cut soundtracks, and even the OPM PS2 demo speeches back into the PC release of Need for Speed: Most Wanted (2005).
@@ -40,5 +42,3 @@ Want to change something? Open `AudioDirectorsCut.toml`. You can switch off the 
 - **ThirteenAG:** Ultimate ASI Loader
 
 All the music and speech belong to EA Black Box and the original artists.
-
-![Audio Director's Cut](Thumbnail.png)

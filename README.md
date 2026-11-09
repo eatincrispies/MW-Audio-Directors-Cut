@@ -2,6 +2,8 @@
 
 # Audio Director's Cut
 
+[Download the mod here]([https://your-google-drive-link-here](https://drive.google.com/file/d/1SmblznAAjvO-gDTUV2Kyp6_ob2w-VQ0n/view?usp=drive_link))
+
 A huge audio overhaul mod that restores the cut pursuit music, cut soundtracks, and even the OPM PS2 demo speeches back into the PC release of Need for Speed: Most Wanted (2005).
 
 ## What's in it

@@ -1,4 +1,6 @@
 #include <windows.h>
+#include "Config.hpp"
+#include "Memory.hpp"
 #include "Music/SFXCTL_Pathfinder.hpp"
 #include "Music/MusicFlow.hpp"
 #include "Music/SFXObj_PFEATrax.hpp"
@@ -8,19 +10,15 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
     switch (reason) {
     case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(module);
-        SFXCTL_Pathfinder::Init(module);
+        Config::Load(module);
+        SFXCTL_Pathfinder::Init();
         MusicFlow::Init();
         SFXObj_PFEATrax::Init();
-        SoundAI::Init(module);
+        SoundAI::Init();
         break;
 
     case DLL_PROCESS_DETACH:
-        if (reserved == nullptr) {
-            SoundAI::Restore();
-            SFXObj_PFEATrax::Restore();
-            MusicFlow::Restore();
-            SFXCTL_Pathfinder::Restore();
-        }
+        if (reserved == NULL) Memory::Unpatch(0);
         break;
     }
     return TRUE;

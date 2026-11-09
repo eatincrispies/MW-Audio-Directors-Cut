@@ -32,8 +32,6 @@ You'll need the PC version of Most Wanted (v1.3) and ThirteenAG's Ultimate ASI L
 2. Copy the `scripts` and `SOUND` folders into your game folder.
 3. If you used Restored Pursuit Music or OPM PS2 Speech Restored before, delete their `.asi` and `.toml` files from `scripts`. This mod replaces both of them.
 
-Want to change something? Open `AudioDirectorsCut.toml`. You can switch off the restored music parts or the EMS calls, change how fast you need to be going for the screams, and see the added songs.
-
 ## Credits
 
 - **eatincrispies:** mod creator

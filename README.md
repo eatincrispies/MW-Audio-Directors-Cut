@@ -31,7 +31,6 @@ You'll need the PC version of Most Wanted (v1.3) and ThirteenAG's Ultimate ASI L
 
 1. Back up `SOUND\PFDATA` (`MW_Music.mpf`, `MW_Music.mus`) and `SOUND\SPEECH` (`copspeech.idx`, `copspeech.big`) in your game folder, just in case.
 2. Copy the `scripts` and `SOUND` folders into your game folder.
-3. If you used Restored Pursuit Music or OPM PS2 Speech Restored before, delete their `.asi` and `.toml` files from `scripts`. This mod replaces both of them.
 
 ## Credits
 

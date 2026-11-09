@@ -40,5 +40,6 @@ Want to change something? Open `AudioDirectorsCut.toml`. You can switch off the 
 - **xan1242:** info about the music pathfinding, and the idea for songs ending into the pursuit music
 - **Roski:** mod tester
 - **ThirteenAG:** Ultimate ASI Loader
+- **Maxwell** - Custom Logo Art
 
 All the music and speech belong to EA Black Box and the original artists.

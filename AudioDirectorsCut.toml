@@ -1,0 +1,48 @@
+## Audio Director's Cut
+
+"Unused Theme 1"          = true
+"Unused Theme 2"          = true
+"Unused Theme 3"          = true
+"Unused Cooldown Theme"   = true
+"Unused Busted Theme"     = true
+"Song Ending Transitions" = true
+
+# Cop speech. MinPlayerSpeed is how fast you were driving when you hit the cop, in km/h. Switches take True or False.
+
+[InterruptRam]
+MinPlayerSpeed = 48.0   # only hits while you drive at least this fast scream; 0 for any speed
+
+[InterruptRamHigh]
+MinPlayerSpeed = 48.0   # only hits while you drive at least this fast scream; 0 for any speed
+
+[CallForEV]
+UnitsDown = True   # a cop calls EMS when three or more units go down within 20 seconds
+HeliDown  = True   # a cop calls EMS when the helicopter is destroyed
+
+[[Song]]
+Album     = "Legion of Boom"
+Artist    = "The Crystal Method"
+PathEvent = 0x01191100
+SongName  = "Weapons of Mass Distortion"
+DefPlay   = "IG"
+
+[[Song]]
+Album     = "Blade: Trinity Soundtrack"
+Artist    = "Black Lab"
+PathEvent = 0x0117559B
+SongName  = "This Blood"
+DefPlay   = "FE"
+
+[[Song]]
+Album     = "Astro-Creep: 2000"
+Artist    = "White Zombie"
+PathEvent = 0x016FB945
+SongName  = "Super-Charger Heaven"
+DefPlay   = "IG"
+
+[[Song]]
+Album     = "Astro-Creep: 2000"
+Artist    = "White Zombie"
+PathEvent = 0x015F0DE5
+SongName  = "More Human Than Human"
+DefPlay   = "IG"

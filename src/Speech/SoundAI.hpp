@@ -1,10 +1,6 @@
 #pragma once
 #include <windows.h>
 
-#ifdef _WIN64
-#error AudioDirectorsCut is a 32-bit ASI
-#endif
-
 namespace EAXCop {
 
     enum Impact {
@@ -66,16 +62,11 @@ namespace SoundAI {
         REACT_INTERRUPT_RAM_HIGH
     };
 
-    struct Settings {
-        float InterruptRamMinPlayerSpeed;
-        float InterruptRamHighMinPlayerSpeed;
-        bool  CallForEVUnitsDown;
-        bool  CallForEVHeliDown;
-
-        Settings();
+    enum PostValidateResult {
+        POST_VALIDATE_KEEP  = 0,
+        POST_VALIDATE_DITCH = 2
     };
 
-    bool Init(HMODULE module);
-    void Restore();
+    bool Init();
 
 }

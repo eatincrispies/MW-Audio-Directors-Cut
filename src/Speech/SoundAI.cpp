@@ -1,11 +1,11 @@
 #include "SoundAI.hpp"
+#include "../Config.hpp"
+#include "../Memory.hpp"
 #include <stdlib.h>
 #include <string.h>
 
 namespace {
 
-    #define CODE_END                         0x00890000
-    #define IMAGE_END                        0x009C7000
     #define WORLD_TIMER                      0x00925AE8
     #define TICKS_PER_SECOND                 4000
 
@@ -24,7 +24,9 @@ namespace {
 
     #define MANAGER_POST_VALIDATE            0x0070C600
     #define MANAGER_UPDATE                   0x00709A70
+    #define MANAGER_CLEAR_PLAYBACK           0x0070E570
     #define MANAGER_COP_SPEECH               0x00992230
+    #define DISPATCH_ARREST_REPLY            0x00717110
     #define EAX_IS_PAUSED                    0x004AE8B0
     #define SND_STRM_IS_PLAYING              0x004B21B0
     #define SND_STRM_GET_STATUS              0x004B2450
@@ -32,12 +34,9 @@ namespace {
     #define SND_STRM_PURGE                   0x004B2580
     #define SOUND_AI                         0x00993CC8
     #define FIND_CLOSEST_COP                 0x00708390
-    #define MANAGER_CLEAR_PLAYBACK           0x0070E570
-    #define DISPATCH_ARREST_REPLY            0x00717110
     #define STRING_TO_KEY                    0x004549B0
     #define EVENT_ID_FROM_KEY                0x004BA9B0
     #define SPEECH_EVENT_TABLE               0x009933F0
-    #define ARREST_EVENT_NAME                "Arrest_Arrest"
 
     #define SOUND_AI_DISPATCH                0x0D8
     #define SOUND_AI_HELI                    0x0E0
@@ -46,20 +45,24 @@ namespace {
     #define SOUND_AI_PURSUIT_STATE           0x1D4
     #define COLLISION_IMPULSE_A              0x05C
     #define COLLISION_IMPULSE_B              0x06C
+    #define COLLISION_INFO_ON_STACK          0x0BC
     #define EVENT_ID                         0x008
     #define COP_DESTROYED                    0x034
     #define GAME_SPEECH_FLAGS                0x028
     #define GAME_SPEECH_CHANNEL              0x02C
     #define GAME_SPEECH_CURRENT_EVENT        0x088
+    #define GAME_SPEECH_BUSY                 0x008
     #define CHANNEL_STREAM                   0x004
+    #define PERP_FLAGS                       0x054
+    #define PERP_BUSTED_FLAG                 0x080
 
     #define COP_INTERRUPT_RAM                0x010
     #define COP_INTERRUPT_RAM_HIGH           0x014
     #define COP_GET_HANDLE                   0x028
     #define COP_UPDATE                       0x054
+    #define COP_ARREST                       0x0E0
     #define COP_CALL_FOR_EV                  0x0FC
     #define COP_UNIT_DISABLED                0x100
-    #define COP_ARREST                       0x0E0
     #define COP_REAR_ENDED                   0x178
     #define COP_HEAD_ON                      0x17C
     #define COP_SIDE_SWIPED                  0x180
@@ -69,6 +72,8 @@ namespace {
     #define EVENT_CALL_FOR_EV                112
     #define EVENT_INTERRUPT_RAM              186
     #define EVENT_INTERRUPT_RAM_HIGH         198
+    #define ARREST_EVENT_NAME                "Arrest_Arrest"
+    #define NO_EVENT                         (-1)
 
     #define CHECK_EXPIRY                     0x001
     #define CHECK_MAX_PLAYBACK               0x002
@@ -76,7 +81,6 @@ namespace {
     #define CHECK_DEP_FOLLOW                 0x020
     #define CHECK_ON_SCREEN_ONLY             0x040
     #define CHECK_PLAYER_SPEED               0x200
-    #define GAME_SPEECH_BUSY                 0x008
 
     #define RAMMED_KPH                       20
     #define RAMMED_HIGH_KPH                  35
@@ -99,106 +103,82 @@ namespace {
     #define ARREST_WAIT_MS                   8000
     #define ARREST_HOLD_MS                   6000
     #define SPEECH_RUNNING_MS                500
-    #define NO_EVENT                         (-1)
-    #define POST_VALIDATE_KEEP               0
-    #define POST_VALIDATE_DITCH              2
-    #define MOST_KPH                         1000
 
     #define KPH_PER_METRE_PER_SECOND         3.6f
     #define KPH_PER_MPH                      1.609344f
 
-    #define OPCODE_CALL                      0xE8
-    #define OPCODE_JUMP                      0xE9
-    #define OPCODE_NOP                       0x90
-    #define BRANCH_SIZE                      5
-    #define MOST_BYTES                       16
-    #define MOST_PATCHES                     10
+    const BYTE kReactionCode[]               = { 0xD9, 0x44, 0x24, 0x1C, 0xD8, 0x1D, 0xEC, 0x10, 0x89, 0x00 };
+    const BYTE kDoneCode[]                   = { 0x5F, 0x5D, 0x8B, 0x8C, 0x24, 0xA4, 0x00, 0x00, 0x00 };
+    const BYTE kPreValidateCallCode[]        = { 0xE8, 0xE1, 0xF8, 0xFF, 0xFF };
+    const BYTE kGetNextEventCallCode[]       = { 0xE8, 0x4E, 0xAB, 0xFF, 0xFF };
+    const BYTE kDecisionCode[]               = { 0x84, 0xDB, 0x0F, 0x84, 0x58, 0x01, 0x00, 0x00 };
+    const BYTE kPlayCode[]                   = { 0x8B, 0x5C, 0x24, 0x18 };
+    const BYTE kRequeueCode[]                = { 0x68, 0xD0, 0x33, 0x99, 0x00 };
+    const BYTE kHeliUpdateCode[]             = { 0x8B, 0x8D, 0xE0, 0x00, 0x00, 0x00, 0x8B, 0x01, 0xFF, 0x50, 0x54 };
+    const BYTE kSpeechUpdateCode[]           = { 0xE8, 0xCD, 0x91, 0x23, 0x00 };
+    const BYTE kPerpBustedCode[]             = { 0x81, 0x4E, 0x54, 0x80, 0x00, 0x00, 0x00 };
+    const BYTE kNisClearCode[]               = { 0xE8, 0xB4, 0x71, 0x01, 0x00 };
+    const BYTE kNisReplyCode[]               = { 0xE8, 0x40, 0xFD, 0x01, 0x00 };
 
-    const BYTE kReactionCode[]         = { 0xD9, 0x44, 0x24, 0x1C, 0xD8, 0x1D, 0xEC, 0x10, 0x89, 0x00 };
-    const BYTE kDoneCode[]             = { 0x5F, 0x5D, 0x8B, 0x8C, 0x24, 0xA4, 0x00, 0x00, 0x00 };
-    const BYTE kPreValidateCallCode[]  = { 0xE8, 0xE1, 0xF8, 0xFF, 0xFF };
-    const BYTE kGetNextEventCallCode[] = { 0xE8, 0x4E, 0xAB, 0xFF, 0xFF };
-    const BYTE kDecisionCode[]         = { 0x84, 0xDB, 0x0F, 0x84, 0x58, 0x01, 0x00, 0x00 };
-    const BYTE kPlayCode[]             = { 0x8B, 0x5C, 0x24, 0x18 };
-    const BYTE kRequeueCode[]          = { 0x68, 0xD0, 0x33, 0x99, 0x00 };
-    const BYTE kHeliUpdateCode[]       = { 0x8B, 0x8D, 0xE0, 0x00, 0x00, 0x00, 0x8B, 0x01, 0xFF, 0x50, 0x54 };    const BYTE kSpeechUpdateCode[]     = { 0xE8, 0xCD, 0x91, 0x23, 0x00 };
-    const BYTE kPerpBustedCode[]       = { 0x81, 0x4E, 0x54, 0x80, 0x00, 0x00, 0x00 };
-    const BYTE kNisClearCode[]         = { 0xE8, 0xB4, 0x71, 0x01, 0x00 };
-    const BYTE kNisReplyCode[]         = { 0xE8, 0x40, 0xFD, 0x01, 0x00 };
+    typedef void          (__thiscall* VoidMethod)(void* object);
+    typedef int           (__thiscall* IntQuery)(void* object);
+    typedef bool          (__thiscall* BoolQuery)(void* object);
+    typedef void*         (__thiscall* PointerQuery)(void* object);
+    typedef void*         (__thiscall* FindCopMethod)(void* soundAI, bool enforceLOS, bool includeHeli);
+    typedef int           (__thiscall* EventIDMethod)(void* table, unsigned int key);
+    typedef int           (__thiscall* StreamStatusMethod)(void* stream, SndStrmWrapper::StreamStatus* status);
+    typedef int           (__thiscall* RequestStatusMethod)(void* stream, int request, SndStrmWrapper::RequestStatus* status);
+    typedef int           (__cdecl* PostValidateFunction)(void* event, unsigned int mask);
+    typedef void          (__cdecl* UpdateFunction)(float timestep);
+    typedef void          (__cdecl* VoidFunction)(void);
+    typedef bool          (__cdecl* PausedFunction)(void);
+    typedef unsigned int  (__cdecl* KeyFunction)(const char* name);
 
-    typedef void  (__thiscall* VoidMethod)(void* object);
-    typedef void  (__thiscall* IntMethod)(void* object, int value);
-    typedef int   (__thiscall* IntQuery)(void* object);
-    typedef bool  (__thiscall* BoolQuery)(void* object);
-    typedef void* (__thiscall* PointerQuery)(void* object);
-    typedef void* (__thiscall* FindCopMethod)(void* soundAI, bool enforceLOS, bool includeHeli);    typedef int   (__cdecl* PostValidateFunction)(void* event, unsigned int mask);
-    typedef void  (__cdecl* UpdateFunction)(float timestep);
-    typedef void  (__cdecl* VoidFunction)(void);
-    typedef unsigned int (__cdecl* KeyFunction)(const char* name);
-    typedef int   (__thiscall* EventIDMethod)(void* table, unsigned int key);
-    typedef bool  (__cdecl* PausedFunction)(void);
-    typedef int   (__thiscall* StreamStatusMethod)(void* stream, SndStrmWrapper::StreamStatus* status);
-    typedef int   (__thiscall* RequestStatusMethod)(void* stream, int request, SndStrmWrapper::RequestStatus* status);
+    DWORD gDone                              = ON_COLLISION_DONE;
+    DWORD gServicePlay                       = SERVICE_PLAY;
+    DWORD gServiceRequeue                    = SERVICE_REQUEUE;
+    bool  gCutInPatched                      = false;
+    int   gCutInID                           = 0;
+    int   gCutInUntil                        = 0;
+    int   gScreamUntil                       = 0;
+    bool  gCallingForEV                      = false;
+    bool  gCallingForHeli                    = false;
+    int   gCallForEVUntil                    = 0;
+    int   gEMSUntil                          = 0;
+    int   gPileupUntil                       = 0;
+    int   gHeliDownUntil                     = 0;
+    int   gUnitDownUntil                     = 0;
+    void* gGasStationEvent                   = NULL;
+    int   gGasStationKeptAt                  = 0;
+    int   gGasStationUntil                   = 0;
+    void* gDownedHeli                        = NULL;
+    void* gWatchedPursuit                    = NULL;
+    int   gCopsDestroyed                     = 0;
+    int   gWreckTimes[PILEUP_WRECKS];
+    int   gWreckCount                        = 0;
+    int   gNewWrecks                         = 0;
+    int   gNewWrecksAt                       = 0;
+    int   gHeliWrecksPending                 = 0;
+    int   gHeliWreckAt                       = 0;
+    int   gArrestID                          = NO_EVENT;
+    bool  gArrestCalled                      = false;
+    bool  gArrestStarted                     = false;
+    DWORD gArrestCalledAt                    = 0;
+    bool  gHolding                           = false;
+    bool  gReplyHeld                         = false;
+    DWORD gHoldSince                         = 0;
+    DWORD gSpeechRanAt                       = 0;
+    bool  gStalling                          = false;
+    int   gStallSince                        = 0;
+    int   gStallPlayed                       = 0;
+    int   gStallRequest                      = 0;
 
-    struct SavedPatch {
-        DWORD  address;
-        size_t length;
-        BYTE   bytes[MOST_BYTES];
-    };
-
-    SoundAI::Settings gSettings;
-    SavedPatch        gSaved[MOST_PATCHES];
-    int               gSavedCount        = 0;
-    DWORD             gDone              = ON_COLLISION_DONE;
-    DWORD             gServicePlay       = SERVICE_PLAY;
-    DWORD             gServiceRequeue    = SERVICE_REQUEUE;
-    bool              gCutInPatched      = false;
-    int               gCutInID           = 0;
-    int               gCutInUntil        = 0;
-    int               gScreamUntil       = 0;
-    bool              gCallingForEV      = false;
-    bool              gCallingForHeli    = false;
-    int               gCallForEVUntil    = 0;
-    void*             gDownedHeli        = NULL;
-    void*             gWatchedPursuit    = NULL;
-    int               gCopsDestroyed     = 0;
-    int               gWreckTimes[PILEUP_WRECKS];
-    int               gWreckCount        = 0;
-    int               gNewWrecks         = 0;
-    int               gNewWrecksAt       = 0;
-    int               gHeliWrecksPending = 0;
-    int               gHeliWreckAt       = 0;
-    int               gUnitDownUntil     = 0;
-    int               gEMSUntil          = 0;
-    int               gPileupUntil       = 0;
-    int               gHeliDownUntil     = 0;
-    void*             gGasStationEvent   = NULL;
-    int               gGasStationKeptAt  = 0;
-    int               gGasStationUntil   = 0;
-    int               gArrestID          = NO_EVENT;
-    bool              gArrestCalled      = false;
-    bool              gArrestStarted     = false;
-    DWORD             gArrestCalledAt    = 0;
-    bool              gHolding           = false;
-    bool              gReplyHeld         = false;
-    DWORD             gHoldSince         = 0;
-    DWORD             gSpeechRanAt       = 0;
-    bool              gStalling          = false;
-    int               gStallSince        = 0;
-    int               gStallPlayed       = 0;
-    int               gStallRequest      = 0;
-
-    template <typename T> T Read(const void* base, DWORD offset);
-    void  Write(DWORD address, const void* bytes, size_t length);
-    bool  Matches(DWORD address, const BYTE* bytes, size_t length);
-    bool  Patch(DWORD site, const BYTE* expected, size_t length, BYTE opcode, const void* target);
-    void  Unpatch(int count);
-    DWORD Method(void* object, DWORD slot);
-    void  CallVirtual(void* object, DWORD slot);
-    void  CallVirtualWith(void* object, DWORD slot, int value);
+    int   Now();
     int   TicksSince(int start);
     bool  TimeBefore(int until);
-    void  LoadConfig(HMODULE module);
+    void* GetSoundAI();
+    void* FindGroundCop(void* soundAI);
+    int   CurrentEventID();
 
     DWORD GetRammedSlot(int impact) {
         switch (impact) {
@@ -211,48 +191,57 @@ namespace {
     }
 
     SoundAI::Reaction PickReaction(float kph, float playerKph, bool hasLine) {
-        if (kph >= INTERRUPT_RAM_HIGH_KPH && playerKph >= gSettings.InterruptRamHighMinPlayerSpeed)
-            return SoundAI::REACT_INTERRUPT_RAM_HIGH;
-        if (kph >= INTERRUPT_RAM_KPH && playerKph >= gSettings.InterruptRamMinPlayerSpeed && rand() % 100 < INTERRUPT_RAM_PERCENT)
-            return SoundAI::REACT_INTERRUPT_RAM;
+        const Config::Settings& s = Config::gSettings;
+        if (kph >= INTERRUPT_RAM_HIGH_KPH && playerKph >= s.InterruptRamHighMinPlayerSpeed) return SoundAI::REACT_INTERRUPT_RAM_HIGH;
+        if (kph >= INTERRUPT_RAM_KPH && playerKph >= s.InterruptRamMinPlayerSpeed && rand() % 100 < INTERRUPT_RAM_PERCENT) return SoundAI::REACT_INTERRUPT_RAM;
         if (kph >= RAMMED_HIGH_KPH) return hasLine ? SoundAI::REACT_RAMMED_HIGH : SoundAI::REACT_NONE;
         if (kph >= RAMMED_KPH) return hasLine ? SoundAI::REACT_RAMMED_NORMAL : SoundAI::REACT_NONE;
         return SoundAI::REACT_NONE;
     }
 
+    void CutIn(int eventID) {
+        gCutInID = eventID;
+        gCutInUntil = Now() + CUT_IN_TICKS;
+    }
+
     bool __cdecl EventCutsIn(const void* event) {
         if (gCutInID == 0 || !TimeBefore(gCutInUntil)) return false;
-        return Read<int>(event, EVENT_ID) == gCutInID;
+        return Memory::Read<int>(event, EVENT_ID) == gCutInID;
     }
 
-    void TriggerCutIn(SoundAI::Reaction reaction) {
-        gCutInID = (reaction == SoundAI::REACT_INTERRUPT_RAM_HIGH) ? EVENT_INTERRUPT_RAM_HIGH : EVENT_INTERRUPT_RAM;
-        gCutInUntil = *(volatile int*)WORLD_TIMER + CUT_IN_TICKS;
-    }
+    void __cdecl React(void* cop, const void* info, int impact) {
+        float kph = (Memory::Read<float>(info, COLLISION_IMPULSE_A) + Memory::Read<float>(info, COLLISION_IMPULSE_B)) * KPH_PER_METRE_PER_SECOND;
+        float mph = Memory::Read<float>(GetSoundAI(), SOUND_AI_PLAYER_SPEED);
+        float playerKph = ((mph < 0) ? -mph : mph) * KPH_PER_MPH;
+        DWORD rammedSlot = GetRammedSlot(impact);
+        SoundAI::Reaction reaction = PickReaction(kph, playerKph, rammedSlot != 0);
+        bool scream = (reaction == SoundAI::REACT_INTERRUPT_RAM || reaction == SoundAI::REACT_INTERRUPT_RAM_HIGH);
+        if (scream && TimeBefore(gScreamUntil)) {
+            reaction = (rammedSlot != 0) ? SoundAI::REACT_RAMMED_HIGH : SoundAI::REACT_NONE;
+            scream = false;
+        }
+        if (scream) {
+            gScreamUntil = Now() + SCREAM_GAP_TICKS;
+            if (gCutInPatched && rand() % 100 < CUT_IN_PERCENT)
+                CutIn((reaction == SoundAI::REACT_INTERRUPT_RAM_HIGH) ? EVENT_INTERRUPT_RAM_HIGH : EVENT_INTERRUPT_RAM);
+        }
 
-    void* GetSoundAI() {
-        return *(void* volatile*)SOUND_AI;
-    }
-
-    void* GetActivePursuit(void* soundAI) {
-        if (soundAI == NULL || Read<int>(soundAI, SOUND_AI_PURSUIT_STATE) != 0) return NULL;
-        return Read<void*>(soundAI, SOUND_AI_PURSUIT);
-    }
-
-    void* FindGroundCop(void* soundAI) {
-        FindCopMethod find = (FindCopMethod)FIND_CLOSEST_COP;
-        void* cop = find(soundAI, true, false);
-        return (cop != NULL) ? cop : find(soundAI, false, false);
+        switch (reaction) {
+            case SoundAI::REACT_RAMMED_NORMAL:      Memory::CallVirtualWith(cop, rammedSlot, EAXCop::INTENSITY_NORMAL); break;
+            case SoundAI::REACT_RAMMED_HIGH:        Memory::CallVirtualWith(cop, rammedSlot, EAXCop::INTENSITY_HIGH); break;
+            case SoundAI::REACT_INTERRUPT_RAM:      Memory::CallVirtual(cop, COP_INTERRUPT_RAM); break;
+            case SoundAI::REACT_INTERRUPT_RAM_HIGH: Memory::CallVirtual(cop, COP_INTERRUPT_RAM_HIGH); break;
+            default:                                break;
+        }
     }
 
     bool CallForEV(void* cop, EAXCop::EVType type) {
         if (cop == NULL || TimeBefore(gEMSUntil)) return false;
-        int now = *(volatile int*)WORLD_TIMER;
         gCallingForEV = true;
         gCallingForHeli = (type == EAXCop::EV_HELI_DOWN);
-        gCallForEVUntil = now + CALL_FOR_EV_TICKS;
-        gEMSUntil = now + EMS_GAP_TICKS;
-        CallVirtualWith(cop, COP_CALL_FOR_EV, type);
+        gCallForEVUntil = Now() + CALL_FOR_EV_TICKS;
+        gEMSUntil = Now() + EMS_GAP_TICKS;
+        Memory::CallVirtualWith(cop, COP_CALL_FOR_EV, type);
         return true;
     }
 
@@ -264,12 +253,6 @@ namespace {
         return gArrestCalled && gArrestID != NO_EVENT && GetTickCount() - gArrestCalledAt < ARREST_WAIT_MS;
     }
 
-    int CurrentEventID() {
-        void* speech = *(void* volatile*)MANAGER_COP_SPEECH;
-        void* event = Read<void*>(speech, GAME_SPEECH_CURRENT_EVENT);
-        return (event != NULL) ? Read<int>(event, EVENT_ID) : NO_EVENT;
-    }
-
     bool ArrestSpeaking() {
         if (!ArrestPending()) return false;
         bool current = (CurrentEventID() == gArrestID);
@@ -277,32 +260,8 @@ namespace {
         return current || !gArrestStarted;
     }
 
-    void __cdecl React(void* cop, const void* info, int impact) {
-        float kph = (Read<float>(info, COLLISION_IMPULSE_A) + Read<float>(info, COLLISION_IMPULSE_B)) * KPH_PER_METRE_PER_SECOND;
-        float mph = Read<float>(GetSoundAI(), SOUND_AI_PLAYER_SPEED);
-        float playerKph = (mph < 0 ? -mph : mph) * KPH_PER_MPH;
-        DWORD rammedSlot = GetRammedSlot(impact);
-        SoundAI::Reaction reaction = PickReaction(kph, playerKph, rammedSlot != 0);
-        bool scream = (reaction == SoundAI::REACT_INTERRUPT_RAM || reaction == SoundAI::REACT_INTERRUPT_RAM_HIGH);
-        if (scream && TimeBefore(gScreamUntil)) {
-            reaction = (rammedSlot != 0) ? SoundAI::REACT_RAMMED_HIGH : SoundAI::REACT_NONE;
-            scream = false;
-        }
-        if (scream) gScreamUntil = *(volatile int*)WORLD_TIMER + SCREAM_GAP_TICKS;
-
-        if (scream && gCutInPatched && rand() % 100 < CUT_IN_PERCENT) TriggerCutIn(reaction);
-
-        switch (reaction) {
-            case SoundAI::REACT_RAMMED_NORMAL:      CallVirtualWith(cop, rammedSlot, EAXCop::INTENSITY_NORMAL); break;
-            case SoundAI::REACT_RAMMED_HIGH:        CallVirtualWith(cop, rammedSlot, EAXCop::INTENSITY_HIGH); break;
-            case SoundAI::REACT_INTERRUPT_RAM:      CallVirtual(cop, COP_INTERRUPT_RAM); break;
-            case SoundAI::REACT_INTERRUPT_RAM_HIGH: CallVirtual(cop, COP_INTERRUPT_RAM_HIGH); break;
-            default:                                break;
-        }
-    }
-
     int __cdecl PostValidate(void* event, unsigned int mask) {
-        int id = Read<int>(event, EVENT_ID);
+        int id = Memory::Read<int>(event, EVENT_ID);
         bool ours = false;
         if (id == gArrestID && ArrestPending()) {
             mask &= CHECK_MAX_PLAYBACK;
@@ -315,27 +274,26 @@ namespace {
                 mask &= ~(CHECK_EXPIRY | CHECK_DEP_FOLLOW);
                 if (gCallingForHeli) mask &= ~CHECK_INTERVAL;
             } else if (!KeptGasStation(event) && (TimeBefore(gGasStationUntil) || TimeBefore(gEMSUntil))) {
-                return POST_VALIDATE_DITCH;
+                return SoundAI::POST_VALIDATE_DITCH;
             }
         }
         int result = ((PostValidateFunction)MANAGER_POST_VALIDATE)(event, mask);
-        if (id == EVENT_CALL_FOR_EV && !ours && result == POST_VALIDATE_KEEP && !KeptGasStation(event)) {
-            int now = *(volatile int*)WORLD_TIMER;
+        if (id == EVENT_CALL_FOR_EV && !ours && result == SoundAI::POST_VALIDATE_KEEP && !KeptGasStation(event)) {
             gGasStationEvent = event;
-            gGasStationKeptAt = now;
-            gGasStationUntil = now + EMS_REPEAT_TICKS;
-            gEMSUntil = now + EMS_GAP_TICKS;
+            gGasStationKeptAt = Now();
+            gGasStationUntil = Now() + EMS_REPEAT_TICKS;
+            gEMSUntil = Now() + EMS_GAP_TICKS;
         }
         return result;
     }
 
     void __cdecl UpdateHeli(void* soundAI) {
-        void* heli = Read<void*>(soundAI, SOUND_AI_HELI);
-        bool wasDown = Read<bool>(heli, COP_DESTROYED);
-        CallVirtual(heli, COP_UPDATE);
-        DWORD method = Method(heli, COP_GET_HANDLE);
+        void* heli = Memory::Read<void*>(soundAI, SOUND_AI_HELI);
+        bool wasDown = Memory::Read<bool>(heli, COP_DESTROYED);
+        Memory::CallVirtual(heli, COP_UPDATE);
+        DWORD method = Memory::Method(heli, COP_GET_HANDLE);
         void* handle = (method != 0) ? ((PointerQuery)method)(heli) : NULL;
-        if (!Read<bool>(heli, COP_DESTROYED)) {
+        if (!Memory::Read<bool>(heli, COP_DESTROYED)) {
             if (handle == gDownedHeli) gDownedHeli = NULL;
             return;
         }
@@ -343,20 +301,18 @@ namespace {
 
         gDownedHeli = handle;
         ++gHeliWrecksPending;
-        gHeliWreckAt = *(volatile int*)WORLD_TIMER;
-        if (!gSettings.CallForEVHeliDown || TimeBefore(gHeliDownUntil)) return;
-        if (CallForEV(FindGroundCop(soundAI), EAXCop::EV_HELI_DOWN))
-            gHeliDownUntil = *(volatile int*)WORLD_TIMER + EMS_REPEAT_TICKS;
+        gHeliWreckAt = Now();
+        if (!Config::gSettings.CallForEVHeliDown || TimeBefore(gHeliDownUntil)) return;
+        if (CallForEV(FindGroundCop(soundAI), EAXCop::EV_HELI_DOWN)) gHeliDownUntil = Now() + EMS_REPEAT_TICKS;
     }
 
     int RememberWrecks(int wrecks) {
-        int now = *(volatile int*)WORLD_TIMER;
         for (int i = 0; i < wrecks; ++i) {
             if (gWreckCount == PILEUP_WRECKS) {
                 memmove(gWreckTimes, gWreckTimes + 1, sizeof(int) * (PILEUP_WRECKS - 1));
                 --gWreckCount;
             }
-            gWreckTimes[gWreckCount++] = now;
+            gWreckTimes[gWreckCount++] = Now();
         }
         int recent = 0;
         for (int i = 0; i < gWreckCount; ++i)
@@ -366,8 +322,8 @@ namespace {
 
     void WatchUnitsDown() {
         void* soundAI = GetSoundAI();
-        void* pursuit = GetActivePursuit(soundAI);
-        DWORD method = Method(pursuit, PURSUIT_COPS_DESTROYED);
+        void* pursuit = (soundAI != NULL && Memory::Read<int>(soundAI, SOUND_AI_PURSUIT_STATE) == 0) ? Memory::Read<void*>(soundAI, SOUND_AI_PURSUIT) : NULL;
+        DWORD method = Memory::Method(pursuit, PURSUIT_COPS_DESTROYED);
         int destroyed = (method != 0) ? ((IntQuery)method)(pursuit) : 0;
         if (gHeliWrecksPending > 0 && TicksSince(gHeliWreckAt) > HELI_WRECK_MATCH_TICKS) gHeliWrecksPending = 0;
         if (pursuit != gWatchedPursuit || destroyed < gCopsDestroyed) {
@@ -379,7 +335,7 @@ namespace {
             return;
         }
         if (destroyed > gCopsDestroyed) {
-            if (gNewWrecks == 0) gNewWrecksAt = *(volatile int*)WORLD_TIMER;
+            if (gNewWrecks == 0) gNewWrecksAt = Now();
             gNewWrecks += destroyed - gCopsDestroyed;
             gCopsDestroyed = destroyed;
         }
@@ -396,31 +352,26 @@ namespace {
         int recent = RememberWrecks(wrecks);
         void* cop = FindGroundCop(soundAI);
         if (cop == NULL) return;
-        if (recent >= PILEUP_WRECKS && gSettings.CallForEVUnitsDown && !TimeBefore(gPileupUntil)
-            && CallForEV(cop, EAXCop::EV_MULTIPLE_UNITS_DOWN)) {
+        if (recent >= PILEUP_WRECKS && Config::gSettings.CallForEVUnitsDown && !TimeBefore(gPileupUntil) && CallForEV(cop, EAXCop::EV_MULTIPLE_UNITS_DOWN)) {
             gWreckCount = 0;
-            gPileupUntil = *(volatile int*)WORLD_TIMER + EMS_REPEAT_TICKS;
+            gPileupUntil = Now() + EMS_REPEAT_TICKS;
         } else if (!TimeBefore(gUnitDownUntil)) {
-            gUnitDownUntil = *(volatile int*)WORLD_TIMER + UNIT_DOWN_GAP_TICKS;
-            CallVirtualWith(cop, COP_UNIT_DISABLED, EAXCop::ABOUT_OTHER_UNIT);
+            gUnitDownUntil = Now() + UNIT_DOWN_GAP_TICKS;
+            Memory::CallVirtualWith(cop, COP_UNIT_DISABLED, EAXCop::ABOUT_OTHER_UNIT);
         }
     }
 
     void __cdecl ArrestAtBust(void* soundAI) {
         void* cop = FindGroundCop(soundAI);
         if (cop == NULL) return;
-        if (gArrestID == NO_EVENT)
-            gArrestID = ((EventIDMethod)EVENT_ID_FROM_KEY)((void*)SPEECH_EVENT_TABLE, ((KeyFunction)STRING_TO_KEY)(ARREST_EVENT_NAME));
+        if (gArrestID == NO_EVENT) gArrestID = ((EventIDMethod)EVENT_ID_FROM_KEY)((void*)SPEECH_EVENT_TABLE, ((KeyFunction)STRING_TO_KEY)(ARREST_EVENT_NAME));
         if (gArrestID == NO_EVENT) return;
 
         gArrestCalled = true;
         gArrestStarted = false;
         gArrestCalledAt = GetTickCount();
-        if (gCutInPatched) {
-            gCutInID = gArrestID;
-            gCutInUntil = *(volatile int*)WORLD_TIMER + CUT_IN_TICKS;
-        }
-        CallVirtual(cop, COP_ARREST);
+        if (gCutInPatched) CutIn(gArrestID);
+        Memory::CallVirtual(cop, COP_ARREST);
     }
 
     void __cdecl ClearOrHold(void) {
@@ -456,15 +407,15 @@ namespace {
         ((VoidFunction)MANAGER_CLEAR_PLAYBACK)();
         if (!gReplyHeld) return;
         gReplyHeld = false;
-        void* dispatch = Read<void*>(GetSoundAI(), SOUND_AI_DISPATCH);
+        void* dispatch = Memory::Read<void*>(GetSoundAI(), SOUND_AI_DISPATCH);
         if (dispatch != NULL) ((VoidMethod)DISPATCH_ARREST_REPLY)(dispatch);
     }
 
     void PollRadioTimeout() {
         void* speech = *(void* volatile*)MANAGER_COP_SPEECH;
-        BYTE* channel = Read<BYTE*>(speech, GAME_SPEECH_CHANNEL);
+        BYTE* channel = Memory::Read<BYTE*>(speech, GAME_SPEECH_CHANNEL);
         void* stream = (channel != NULL) ? channel + CHANNEL_STREAM : NULL;
-        bool busy = (Read<unsigned int>(speech, GAME_SPEECH_FLAGS) & GAME_SPEECH_BUSY) != 0;
+        bool busy = (Memory::Read<unsigned int>(speech, GAME_SPEECH_FLAGS) & GAME_SPEECH_BUSY) != 0;
         if (stream == NULL || !busy || ((PausedFunction)EAX_IS_PAUSED)() || !((BoolQuery)SND_STRM_IS_PLAYING)(stream)) {
             gStalling = false;
             return;
@@ -482,7 +433,7 @@ namespace {
             gStalling = true;
             gStallPlayed = request.played;
             gStallRequest = status.head;
-            gStallSince = *(volatile int*)WORLD_TIMER;
+            gStallSince = Now();
             return;
         }
         int limit = (request.state == SndStrmWrapper::REQUEST_PLAYING) ? STUCK_PLAYING_TICKS : STUCK_WAITING_TICKS;
@@ -503,7 +454,7 @@ namespace {
         __asm {
             mov  eax, esp
             push edi
-            push dword ptr [eax + 0xBC]
+            push dword ptr [eax + COLLISION_INFO_ON_STACK]
             push ebp
             call React
             add  esp, 12
@@ -537,7 +488,7 @@ namespace {
 
     __declspec(naked) void PerpBustedCall() {
         __asm {
-            or   dword ptr [esi + 0x54], 0x80
+            or   dword ptr [esi + PERP_FLAGS], PERP_BUSTED_FLAG
             push esi
             call ArrestAtBust
             add  esp, 4
@@ -553,153 +504,70 @@ namespace {
             ret
         }
     }
+
 }
 
 namespace SoundAI {
 
-    Settings::Settings()
-        : InterruptRamMinPlayerSpeed(48.0f),
-          InterruptRamHighMinPlayerSpeed(48.0f),
-          CallForEVUnitsDown(true),
-          CallForEVHeliDown(true) {
-    }
-
-    bool Init(HMODULE module) {
-        LoadConfig(module);
+    bool Init() {
         srand(GetTickCount());
 
-        if (!Matches(ON_COLLISION_DONE, kDoneCode, sizeof(kDoneCode))
-            || !Patch(ON_COLLISION_REACTION, kReactionCode, sizeof(kReactionCode), OPCODE_JUMP, (const void*)&OnCollisionReaction))
+        if (!Memory::Matches(ON_COLLISION_DONE, kDoneCode, sizeof(kDoneCode))
+            || !Memory::PatchBranch(ON_COLLISION_REACTION, kReactionCode, sizeof(kReactionCode), OPCODE_JUMP, (const void*)&OnCollisionReaction))
             return false;
 
-        bool rules = Patch(PREVALIDATE_POST_VALIDATE, kPreValidateCallCode, sizeof(kPreValidateCallCode), OPCODE_CALL, (const void*)&PostValidate)
-                  && Patch(GETNEXTEVENT_POST_VALIDATE, kGetNextEventCallCode, sizeof(kGetNextEventCallCode), OPCODE_CALL, (const void*)&PostValidate);
-        if (!rules) Unpatch(1);
+        int saved = Memory::Patches();
+        bool rules = Memory::PatchBranch(PREVALIDATE_POST_VALIDATE, kPreValidateCallCode, sizeof(kPreValidateCallCode), OPCODE_CALL, (const void*)&PostValidate)
+                  && Memory::PatchBranch(GETNEXTEVENT_POST_VALIDATE, kGetNextEventCallCode, sizeof(kGetNextEventCallCode), OPCODE_CALL, (const void*)&PostValidate);
+        if (!rules) Memory::Unpatch(saved);
 
         gCutInPatched = rules
-                     && Matches(SERVICE_PLAY, kPlayCode, sizeof(kPlayCode))
-                     && Matches(SERVICE_REQUEUE, kRequeueCode, sizeof(kRequeueCode))
-                     && Patch(SERVICE_DECISION, kDecisionCode, sizeof(kDecisionCode), OPCODE_JUMP, (const void*)&ServiceDecision);
-        Patch(HELI_UPDATE_SITE, kHeliUpdateCode, sizeof(kHeliUpdateCode), OPCODE_CALL, (const void*)&HeliUpdateCall);        bool speech = Patch(SPEECH_UPDATE_SITE, kSpeechUpdateCode, sizeof(kSpeechUpdateCode), OPCODE_CALL, (const void*)&SpeechUpdate);
+                     && Memory::Matches(SERVICE_PLAY, kPlayCode, sizeof(kPlayCode))
+                     && Memory::Matches(SERVICE_REQUEUE, kRequeueCode, sizeof(kRequeueCode))
+                     && Memory::PatchBranch(SERVICE_DECISION, kDecisionCode, sizeof(kDecisionCode), OPCODE_JUMP, (const void*)&ServiceDecision);
 
-        int saved = gSavedCount;
+        Memory::PatchBranch(HELI_UPDATE_SITE, kHeliUpdateCode, sizeof(kHeliUpdateCode), OPCODE_CALL, (const void*)&HeliUpdateCall);
+        bool speech = Memory::PatchBranch(SPEECH_UPDATE_SITE, kSpeechUpdateCode, sizeof(kSpeechUpdateCode), OPCODE_CALL, (const void*)&SpeechUpdate);
+
+        saved = Memory::Patches();
         bool arrest = speech
-                   && Patch(NIS_CLEAR_SITE, kNisClearCode, sizeof(kNisClearCode), OPCODE_CALL, (const void*)&ClearOrHold)
-                   && Patch(NIS_REPLY_SITE, kNisReplyCode, sizeof(kNisReplyCode), OPCODE_CALL, (const void*)&NisReplyCall)
-                   && Patch(PERP_BUSTED_SITE, kPerpBustedCode, sizeof(kPerpBustedCode), OPCODE_CALL, (const void*)&PerpBustedCall);
-        if (!arrest) Unpatch(saved);
+                   && Memory::PatchBranch(NIS_CLEAR_SITE, kNisClearCode, sizeof(kNisClearCode), OPCODE_CALL, (const void*)&ClearOrHold)
+                   && Memory::PatchBranch(NIS_REPLY_SITE, kNisReplyCode, sizeof(kNisReplyCode), OPCODE_CALL, (const void*)&NisReplyCall)
+                   && Memory::PatchBranch(PERP_BUSTED_SITE, kPerpBustedCode, sizeof(kPerpBustedCode), OPCODE_CALL, (const void*)&PerpBustedCall);
+        if (!arrest) Memory::Unpatch(saved);
         return true;
-    }
-
-    void Restore() {
-        Unpatch(0);
-        gCutInPatched = false;
     }
 
 }
 
 namespace {
 
-    template <typename T>
-    T Read(const void* base, DWORD offset) {
-        T value = T();
-        __try {
-            if (base != NULL) value = *(const T*)((const BYTE*)base + offset);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
-        }
-        return value;
-    }
-
-    void Write(DWORD address, const void* bytes, size_t length) {
-        DWORD oldProtect = 0;
-        VirtualProtect((void*)address, length, PAGE_EXECUTE_READWRITE, &oldProtect);
-        memcpy((void*)address, bytes, length);
-        VirtualProtect((void*)address, length, oldProtect, &oldProtect);
-        FlushInstructionCache(GetCurrentProcess(), (void*)address, length);
-    }
-
-    bool Matches(DWORD address, const BYTE* bytes, size_t length) {
-        __try {
-            return memcmp((const void*)address, bytes, length) == 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
-            return false;
-        }
-    }
-
-    bool Patch(DWORD site, const BYTE* expected, size_t length, BYTE opcode, const void* target) {
-        if (gSavedCount >= MOST_PATCHES || !Matches(site, expected, length)) return false;
-        BYTE code[MOST_BYTES];
-        memset(code, OPCODE_NOP, length);
-        code[0] = opcode;
-        *(int*)(code + 1) = (int)((DWORD)target - (site + BRANCH_SIZE));
-        Write(site, code, length);
-
-        SavedPatch& saved = gSaved[gSavedCount++];
-        saved.address = site;
-        saved.length = length;
-        memcpy(saved.bytes, expected, length);
-        return true;
-    }
-
-    void Unpatch(int count) {
-        while (gSavedCount > count) {
-            SavedPatch& saved = gSaved[--gSavedCount];
-            Write(saved.address, saved.bytes, saved.length);
-        }
-    }
-
-    DWORD Method(void* object, DWORD slot) {
-        DWORD table = Read<DWORD>(object, 0);
-        return (table >= CODE_END && table < IMAGE_END) ? Read<DWORD>((const void*)table, slot) : 0;
-    }
-
-    void CallVirtual(void* object, DWORD slot) {
-        DWORD method = Method(object, slot);
-        if (method != 0) ((VoidMethod)method)(object);
-    }
-
-    void CallVirtualWith(void* object, DWORD slot, int value) {
-        DWORD method = Method(object, slot);
-        if (method != 0) ((IntMethod)method)(object, value);
+    int Now() {
+        return *(volatile int*)WORLD_TIMER;
     }
 
     int TicksSince(int start) {
-        return (int)((unsigned int)*(volatile int*)WORLD_TIMER - (unsigned int)start);
+        return (int)((unsigned int)Now() - (unsigned int)start);
     }
 
     bool TimeBefore(int until) {
         return TicksSince(until) < 0;
     }
 
-    bool ReadSwitch(const char* path, const char* section, const char* key, bool fallback) {
-        char text[16] = "";
-        GetPrivateProfileStringA(section, key, "", text, sizeof(text), path);
-        if (_strnicmp(text, "true", 4) == 0) return true;
-        if (_strnicmp(text, "false", 5) == 0) return false;
-        return fallback;
+    void* GetSoundAI() {
+        return *(void* volatile*)SOUND_AI;
     }
 
-    float ReadSpeed(const char* path, const char* section, const char* key, float fallback) {
-        char text[32] = "";
-        GetPrivateProfileStringA(section, key, "", text, sizeof(text), path);
-        char* end = NULL;
-        double number = strtod(text, &end);
-        return (end != text && number >= 0 && number <= MOST_KPH) ? (float)number : fallback;
+    void* FindGroundCop(void* soundAI) {
+        FindCopMethod find = (FindCopMethod)FIND_CLOSEST_COP;
+        void* cop = find(soundAI, true, false);
+        return (cop != NULL) ? cop : find(soundAI, false, false);
     }
 
-    void LoadConfig(HMODULE module) {
-        char path[MAX_PATH] = "";
-        GetModuleFileNameA(module, path, MAX_PATH - 8);
-        char* dot = strrchr(path, '.');
-        if (dot == NULL) return;
-        strcpy(dot, ".toml");
-
-        SoundAI::Settings& s = gSettings;
-        s.InterruptRamMinPlayerSpeed      = ReadSpeed(path,  "InterruptRam",     "MinPlayerSpeed",  s.InterruptRamMinPlayerSpeed);
-        s.InterruptRamHighMinPlayerSpeed  = ReadSpeed(path,  "InterruptRamHigh", "MinPlayerSpeed",  s.InterruptRamHighMinPlayerSpeed);        s.CallForEVUnitsDown              = ReadSwitch(path, "CallForEV",        "UnitsDown",       s.CallForEVUnitsDown);
-        s.CallForEVHeliDown               = ReadSwitch(path, "CallForEV",        "HeliDown",        s.CallForEVHeliDown);
+    int CurrentEventID() {
+        void* speech = *(void* volatile*)MANAGER_COP_SPEECH;
+        void* event = Memory::Read<void*>(speech, GAME_SPEECH_CURRENT_EVENT);
+        return (event != NULL) ? Memory::Read<int>(event, EVENT_ID) : NO_EVENT;
     }
 
 }

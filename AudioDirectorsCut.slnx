@@ -1,0 +1,10 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="AudioDirectorsCut.vcxproj" Id="f862b5da-eb11-4661-a142-837221daac01">
+    <Platform Solution="*|x86" Project="Win32" />
+  </Project>
+</Solution>

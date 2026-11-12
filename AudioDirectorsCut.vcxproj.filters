@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{653ca12d-cffd-49f6-bbf8-b8e380a42410}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\Music">
+      <UniqueIdentifier>{b8acc012-65eb-4b97-9de7-f96f69589ed7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\Speech">
+      <UniqueIdentifier>{8c6a94d6-680f-42d3-aedc-92b5486030e2}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\Config.hpp">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Memory.hpp">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Music\MusicFlow.hpp">
+      <Filter>src\Music</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Music\SFXCTL_Pathfinder.hpp">
+      <Filter>src\Music</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Music\SFXObj_PFEATrax.hpp">
+      <Filter>src\Music</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Speech\SoundAI.hpp">
+      <Filter>src\Speech</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\dllmain.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Config.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Memory.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Music\MusicFlow.cpp">
+      <Filter>src\Music</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Music\SFXCTL_Pathfinder.cpp">
+      <Filter>src\Music</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Music\SFXObj_PFEATrax.cpp">
+      <Filter>src\Music</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Speech\SoundAI.cpp">
+      <Filter>src\Speech</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="AudioDirectorsCut.toml" />
+  </ItemGroup>
+</Project>
